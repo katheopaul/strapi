@@ -1,0 +1,12 @@
+dist/
+coverage/
+.coverage/
+node_modules/
+.DS_Store
+*.log
+.idea/
+package-lock.json
+yarn.lock
+.vscode/
+.eslintcache
+.strapi-updater.json
