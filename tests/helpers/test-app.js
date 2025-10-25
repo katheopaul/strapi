@@ -19,8 +19,12 @@ const cleanTestApp = async (appPath) => {
  * @param {Object} options - Options
  * @param {string} options.appPath - Name of the app that will be created (also the name of the folder)
  * @param {database} options.database - Arguments to create the testApp with the provided database params
+ * @param {string} options.template - Optional template path
+ * @param {boolean} options.link - Whether to link monorepo packages via yalc
+ * @param {string[]} options.includePlugins - Array of plugin names to enable in config/plugins.js
+ * @param {('yalc'|'file')} [options.installMethod] - How to install included plugins
  */
-const generateTestApp = async ({ appPath, database, template, link = false }) => {
+const generateTestApp = async ({ appPath, database, template, link = false, includePlugins = [], installMethod }) => {
   const pkg = require(path.resolve(__dirname, '../../packages/core/strapi/package.json'));
 
   const scope = {
@@ -56,6 +60,16 @@ const generateTestApp = async ({ appPath, database, template, link = false }) =>
   if (link) {
     await linkPackages(scope);
   }
+
+  // Install plugin via file: dependency if requested
+  if (!link && installMethod === 'file' && includePlugins.includes('audit-logs')) {
+    await addFileDependency(scope, '@strapi/plugin-audit-logs', path.resolve(__dirname, '../../packages/plugins/audit-logs'));
+  }
+
+  // Write config/plugins.js if plugins are requested
+  if (includePlugins.length > 0) {
+    await writePluginsConfig(scope, includePlugins);
+  }
 };
 
 const linkPackages = async (scope) => {
@@ -65,6 +79,52 @@ const linkPackages = async (scope) => {
     cwd: scope.rootPath,
     stdio: 'inherit',
   });
+};
+
+/**
+ * Adds a file: dependency and runs yarn install
+ * @param {object} scope
+ * @param {string} name
+ * @param {string} pkgPath absolute path to the package
+ */
+const addFileDependency = async (scope, name, pkgPath) => {
+  const pkgJsonPath = path.join(scope.rootPath, 'package.json');
+  const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+  pkgJson.dependencies = pkgJson.dependencies || {};
+  // Use forward slashes in file path for cross-platform yarn
+  const fileRef = `file:${pkgPath.replace(/\\/g, '/')}`;
+  pkgJson.dependencies[name] = fileRef;
+  fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 2));
+  // Ensure this app is treated as an independent project by Yarn Berry
+  const yarnLockPath = path.join(scope.rootPath, 'yarn.lock');
+  if (!fs.existsSync(yarnLockPath)) {
+    fs.writeFileSync(yarnLockPath, '');
+  }
+
+  await execa('yarn', ['install'], { cwd: scope.rootPath, stdio: 'inherit' });
+};
+
+/**
+ * Writes config/plugins.js to enable specified plugins
+ * @param {Object} scope - Strapi app scope with rootPath
+ * @param {string[]} plugins - Array of plugin names to enable
+ */
+const writePluginsConfig = async (scope, plugins) => {
+  const configDir = path.join(scope.rootPath, 'config');
+  
+  // Ensure config directory exists
+  if (!fs.existsSync(configDir)) {
+    fs.mkdirSync(configDir, { recursive: true });
+  }
+
+  const pluginConfig = plugins.reduce((acc, pluginName) => {
+    acc[pluginName] = { enabled: true };
+    return acc;
+  }, {});
+
+  const configContent = `module.exports = ${JSON.stringify(pluginConfig, null, 2)};\n`;
+  
+  fs.writeFileSync(path.join(configDir, 'plugins.js'), configContent);
 };
 
 /**

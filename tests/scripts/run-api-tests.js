@@ -59,11 +59,17 @@ const runAllTests = async (args) => {
   });
 };
 
-const main = async ({ database, generateApp }, args) => {
+const main = async ({ database, generateApp, includeAuditLogs, auditLogsInstall }, args) => {
   try {
     if (generateApp) {
       await cleanTestApp(appPath);
-      await generateTestApp({ appPath, database });
+      await generateTestApp({ 
+        appPath, 
+        database, 
+        link: includeAuditLogs && auditLogsInstall === 'yalc',
+        includePlugins: includeAuditLogs ? ['audit-logs'] : [],
+        installMethod: includeAuditLogs ? auditLogsInstall : undefined,
+      });
     }
 
     await runAllTests(args).catch(() => {
@@ -91,11 +97,24 @@ yargs
       });
 
       yarg.boolean('generate-app');
+
+      yarg.option('include-audit-logs', {
+        type: 'boolean',
+        describe: 'Include and enable the audit-logs plugin in the test app',
+        default: false,
+      });
+
+      yarg.option('audit-logs-install', {
+        type: 'string',
+        choices: ['yalc', 'file'],
+        describe: 'How to install @strapi/plugin-audit-logs into the test app when included',
+        default: process.platform === 'win32' ? 'file' : 'yalc',
+      });
     },
     (argv) => {
-      const { database, generateApp = true } = argv;
+      const { database, generateApp = true, includeAuditLogs = false, auditLogsInstall } = argv;
 
-      main({ generateApp, database: databases[database] }, argv._);
+      main({ generateApp, database: databases[database], includeAuditLogs, auditLogsInstall }, argv._);
     }
   )
   .help()
